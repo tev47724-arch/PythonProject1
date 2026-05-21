@@ -11,6 +11,31 @@ load_dotenv()
 
 st.title("PSU Harrisburg Website Assistant")
 
+PSU_PROGRAMS_INFO = """
+Source: https://harrisburg.psu.edu/academic-programs
+
+Penn State Harrisburg offers undergraduate and graduate programs through several schools:
+
+- School of Business Administration
+- School of Science, Engineering, and Technology
+- School of Public Affairs
+- School of Behavioral Sciences and Education
+- School of Humanities
+
+Examples of program areas include:
+- Business
+- Engineering
+- Information Sciences and Technology
+- Computer Science
+- Cybersecurity
+- Criminal Justice
+- Education
+- Psychology
+- Communications
+- Public Policy
+- Humanities
+"""
+
 
 def get_secret(name):
     try:
@@ -24,11 +49,6 @@ def scrape_psu_pages():
         "https://harrisburg.psu.edu/",
         "https://harrisburg.psu.edu/academics",
         "https://harrisburg.psu.edu/academic-programs",
-        "https://harrisburg.psu.edu/college-business-administration",
-        "https://harrisburg.psu.edu/school-science-engineering-technology",
-        "https://harrisburg.psu.edu/school-public-affairs",
-        "https://harrisburg.psu.edu/school-behavioral-sciences-and-education",
-        "https://harrisburg.psu.edu/school-humanities",
         "https://harrisburg.psu.edu/admissions",
         "https://harrisburg.psu.edu/financial-aid",
         "https://harrisburg.psu.edu/campus-life",
@@ -62,7 +82,7 @@ def scrape_psu_pages():
             soup = BeautifulSoup(response.text, "html.parser")
             text = soup.get_text(" ", strip=True)
 
-            all_text += f"\n\nSource: {url}\n{text[:7000]}"
+            all_text += f"\n\nSource: {url}\n{text[:5000]}"
 
         except Exception as e:
             all_text += f"\n\nSource: {url}\nCould not read this page: {e}"
@@ -73,19 +93,23 @@ def scrape_psu_pages():
 question = st.chat_input("Ask something about PSU Harrisburg")
 
 if question:
+
     with st.chat_message("user"):
         st.write(question)
 
     with st.chat_message("assistant"):
+
         with st.spinner("Searching PSU Harrisburg websites..."):
 
             api_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
 
             if not api_key:
-                st.error("Missing OPENROUTER_API_KEY.")
+                st.error("Missing OPENROUTER_API_KEY")
+
             else:
-                website_info = scrape_psu_pages()
+
+                website_info = PSU_PROGRAMS_INFO + scrape_psu_pages()
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -97,31 +121,33 @@ if question:
                 prompt = f"""
 You are a helpful assistant for Penn State Harrisburg.
 
-You should answer questions about:
+You ONLY answer questions related to:
 - Penn State Harrisburg
-- Penn State academics
+- PSU academics
 - admissions
-- financial aid
 - housing
 - campus life
 - student services
-- academic calendars
+- financial aid
 - Canvas
 - LionPATH
 - PSU technology resources
 
-If the user asks a question that is clearly unrelated to Penn State or PSU Harrisburg, say:
+If the user asks unrelated questions, say:
 "I can only answer questions related to Penn State Harrisburg."
 
-Use the website content below to answer.
+You MUST answer using the website information below.
 
-Do not say you do not have access unless the answer is truly not found.
+Do NOT say:
+"I do not have access"
 
-Give answers in bullet points.
+If information exists in the website content, answer it.
 
-Always include the most relevant source URL at the end.
+Give detailed bullet point answers.
 
-Website content:
+Always include a source URL at the end.
+
+Website information:
 {website_info}
 
 User question:
@@ -129,6 +155,7 @@ User question:
 """
 
                 try:
+
                     response = llm.invoke([
                         HumanMessage(content=prompt)
                     ])
@@ -136,5 +163,6 @@ User question:
                     st.write(response.content)
 
                 except Exception as e:
-                    st.error("OpenRouter error. Check your API key, credits, or model name.")
+
+                    st.error("OpenRouter error")
                     st.write(e)
