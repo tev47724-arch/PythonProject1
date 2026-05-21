@@ -11,31 +11,6 @@ load_dotenv()
 
 st.title("PSU Harrisburg Website Assistant")
 
-PSU_PROGRAMS_INFO = """
-Source: https://harrisburg.psu.edu/academic-programs
-
-Penn State Harrisburg offers undergraduate and graduate programs through several schools:
-
-- School of Business Administration
-- School of Science, Engineering, and Technology
-- School of Public Affairs
-- School of Behavioral Sciences and Education
-- School of Humanities
-
-Examples of program areas include:
-- Business
-- Engineering
-- Information Sciences and Technology
-- Computer Science
-- Cybersecurity
-- Criminal Justice
-- Education
-- Psychology
-- Communications
-- Public Policy
-- Humanities
-"""
-
 
 def get_secret(name):
     try:
@@ -44,48 +19,67 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def scrape_psu_pages():
-    urls = [
-        "https://harrisburg.psu.edu/",
-        "https://harrisburg.psu.edu/academics",
-        "https://harrisburg.psu.edu/academic-programs",
-        "https://harrisburg.psu.edu/admissions",
-        "https://harrisburg.psu.edu/financial-aid",
-        "https://harrisburg.psu.edu/campus-life",
-        "https://harrisburg.psu.edu/student-life",
-        "https://harrisburg.psu.edu/housing-and-food-services",
-        "https://harrisburg.psu.edu/career-services",
-        "https://harrisburg.psu.edu/advising",
-        "https://harrisburg.psu.edu/contact-us",
-        "https://www.registrar.psu.edu/academic-calendars/",
-        "https://bulletins.psu.edu/programs/",
-        "https://admissions.psu.edu/",
-        "https://studentaid.psu.edu/",
-        "https://liveon.psu.edu/",
-        "https://libraries.psu.edu/",
-        "https://canvas.psu.edu/",
-        "https://lionpath.psu.edu/",
-        "https://webaccess.psu.edu/",
-        "https://it.psu.edu/",
-        "https://foodservices.psu.edu/",
-        "https://transportation.psu.edu/",
-        "https://global.psu.edu/"
-    ]
+def scrape_psu_pages(question):
+
+    # choose ONE focused website based on question
+    if "housing" in question.lower() or "dining" in question.lower():
+        urls = [
+            "https://harrisburg.psu.edu/housing-and-food-services",
+            "https://foodservices.psu.edu/",
+            "https://liveon.psu.edu/"
+        ]
+
+    elif "admission" in question.lower():
+        urls = [
+            "https://harrisburg.psu.edu/admissions",
+            "https://admissions.psu.edu/"
+        ]
+
+    elif "financial" in question.lower() or "aid" in question.lower():
+        urls = [
+            "https://harrisburg.psu.edu/financial-aid",
+            "https://studentaid.psu.edu/"
+        ]
+
+    elif "canvas" in question.lower():
+        urls = [
+            "https://canvas.psu.edu/"
+        ]
+
+    elif "lionpath" in question.lower():
+        urls = [
+            "https://lionpath.psu.edu/"
+        ]
+
+    elif "program" in question.lower() or "major" in question.lower():
+        urls = [
+            "https://harrisburg.psu.edu/academic-programs",
+            "https://bulletins.psu.edu/programs/"
+        ]
+
+    else:
+        urls = [
+            "https://harrisburg.psu.edu/",
+            "https://harrisburg.psu.edu/student-life",
+            "https://harrisburg.psu.edu/campus-life"
+        ]
 
     all_text = ""
 
     for url in urls:
+
         try:
             response = requests.get(url, timeout=10)
-            response.raise_for_status()
 
             soup = BeautifulSoup(response.text, "html.parser")
+
             text = soup.get_text(" ", strip=True)
 
-            all_text += f"\n\nSource: {url}\n{text[:5000]}"
+            all_text += f"\n\nSOURCE WEBSITE: {url}\n{text[:12000]}"
 
         except Exception as e:
-            all_text += f"\n\nSource: {url}\nCould not read this page: {e}"
+
+            all_text += f"\nCould not read {url}: {e}"
 
     return all_text
 
@@ -105,11 +99,12 @@ if question:
             base_url = get_secret("OPENROUTER_BASE_URL")
 
             if not api_key:
-                st.error("Missing OPENROUTER_API_KEY")
+
+                st.error("Missing OPENROUTER_API_KEY.")
 
             else:
 
-                website_info = PSU_PROGRAMS_INFO + scrape_psu_pages()
+                website_info = scrape_psu_pages(question)
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -119,38 +114,30 @@ if question:
                 )
 
                 prompt = f"""
-You are a helpful assistant for Penn State Harrisburg.
+You are a PSU Harrisburg assistant.
 
-You ONLY answer questions related to:
-- Penn State Harrisburg
-- PSU academics
-- admissions
-- housing
-- campus life
-- student services
-- financial aid
-- Canvas
-- LionPATH
-- PSU technology resources
+ONLY answer questions related to Penn State Harrisburg.
 
-If the user asks unrelated questions, say:
+If unrelated, say:
 "I can only answer questions related to Penn State Harrisburg."
 
-You MUST answer using the website information below.
+Answer using ONLY the website information below.
 
-Do NOT say:
-"I do not have access"
+Do not say:
+- I do not have access
+- I cannot provide
+- I do not know
 
-If information exists in the website content, answer it.
+Instead summarize the information you find.
 
-Give detailed bullet point answers.
+Use bullet points.
 
-Always include a source URL at the end.
+At the end include the source website.
 
-Website information:
+Website Information:
 {website_info}
 
-User question:
+Question:
 {question}
 """
 
@@ -164,5 +151,5 @@ User question:
 
                 except Exception as e:
 
-                    st.error("OpenRouter error")
+                    st.error("OpenRouter error.")
                     st.write(e)
