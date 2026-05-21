@@ -9,6 +9,8 @@ from langchain_core.messages import HumanMessage
 
 load_dotenv()
 
+st.set_page_config(page_title="PSU Harrisburg Assistant")
+
 st.title("PSU Harrisburg Website Assistant")
 
 
@@ -21,47 +23,71 @@ def get_secret(name):
 
 def scrape_psu_pages(question):
 
-    # choose ONE focused website based on question
-    if "housing" in question.lower() or "dining" in question.lower():
+    question_lower = question.lower()
+
+    # Choose focused PSU pages based on the question
+    if "housing" in question_lower or "dining" in question_lower:
+
         urls = [
             "https://harrisburg.psu.edu/housing-and-food-services",
             "https://foodservices.psu.edu/",
             "https://liveon.psu.edu/"
         ]
 
-    elif "admission" in question.lower():
+    elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/academic-programs",
+            "https://bulletins.psu.edu/programs/",
+            "https://harrisburg.psu.edu/academics"
+        ]
+
+    elif "admission" in question_lower or "apply" in question_lower:
+
         urls = [
             "https://harrisburg.psu.edu/admissions",
             "https://admissions.psu.edu/"
         ]
 
-    elif "financial" in question.lower() or "aid" in question.lower():
+    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
+
         urls = [
             "https://harrisburg.psu.edu/financial-aid",
             "https://studentaid.psu.edu/"
         ]
 
-    elif "canvas" in question.lower():
+    elif "canvas" in question_lower:
+
         urls = [
             "https://canvas.psu.edu/"
         ]
 
-    elif "lionpath" in question.lower():
+    elif "lionpath" in question_lower:
+
         urls = [
             "https://lionpath.psu.edu/"
         ]
 
-    elif "program" in question.lower() or "major" in question.lower():
+    elif "career" in question_lower:
+
         urls = [
-            "https://harrisburg.psu.edu/academic-programs",
-            "https://bulletins.psu.edu/programs/"
+            "https://harrisburg.psu.edu/career-services"
+        ]
+
+    elif "student" in question_lower or "campus" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/student-life",
+            "https://harrisburg.psu.edu/campus-life"
         ]
 
     else:
+
         urls = [
             "https://harrisburg.psu.edu/",
-            "https://harrisburg.psu.edu/student-life",
-            "https://harrisburg.psu.edu/campus-life"
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/admissions",
+            "https://harrisburg.psu.edu/student-life"
         ]
 
     all_text = ""
@@ -69,17 +95,42 @@ def scrape_psu_pages(question):
     for url in urls:
 
         try:
-            response = requests.get(url, timeout=10)
+
+            response = requests.get(
+                url,
+                timeout=10,
+                headers={
+                    "User-Agent": "Mozilla/5.0"
+                }
+            )
 
             soup = BeautifulSoup(response.text, "html.parser")
 
             text = soup.get_text(" ", strip=True)
 
-            all_text += f"\n\nSOURCE WEBSITE: {url}\n{text[:12000]}"
+            cleaned_text = text[:12000]
+
+            all_text += f"""
+
+SOURCE WEBSITE:
+{url}
+
+WEBSITE CONTENT:
+{cleaned_text}
+
+"""
 
         except Exception as e:
 
-            all_text += f"\nCould not read {url}: {e}"
+            all_text += f"""
+
+SOURCE WEBSITE:
+{url}
+
+ERROR:
+{e}
+
+"""
 
     return all_text
 
@@ -114,30 +165,45 @@ if question:
                 )
 
                 prompt = f"""
-You are a PSU Harrisburg assistant.
+You are a helpful Penn State Harrisburg assistant.
 
-ONLY answer questions related to Penn State Harrisburg.
+Questions about:
+- academics
+- housing
+- dining
+- admissions
+- financial aid
+- campus life
+- majors
+- programs
+- Canvas
+- LionPATH
+- PSU student services
 
-If unrelated, say:
-"I can only answer questions related to Penn State Harrisburg."
+ARE related to Penn State Harrisburg.
 
-Answer using ONLY the website information below.
+Only reject questions that are clearly unrelated like:
+- sports scores
+- celebrities
+- politics
+- weather
+- random programming questions
 
-Do not say:
-- I do not have access
-- I cannot provide
-- I do not know
+IMPORTANT:
+- Use ONLY the website information provided below.
+- Summarize the information clearly.
+- Use bullet points.
+- Do NOT say:
+    - "I do not have access"
+    - "I cannot provide"
+    - "I do not know"
+- If information is limited, still summarize what is available.
+- Always include the most relevant source website URL at the end.
 
-Instead summarize the information you find.
-
-Use bullet points.
-
-At the end include the source website.
-
-Website Information:
+WEBSITE INFORMATION:
 {website_info}
 
-Question:
+USER QUESTION:
 {question}
 """
 
