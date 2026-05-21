@@ -19,7 +19,7 @@ def scrape_psu_pages():
     urls_to_visit = [start_url]
     all_text = ""
 
-    max_pages = 20
+    max_pages = 50
 
     while urls_to_visit and len(visited) < max_pages:
         url = urls_to_visit.pop(0)
@@ -36,7 +36,7 @@ def scrape_psu_pages():
             soup = BeautifulSoup(response.text, "html.parser")
 
             text = soup.get_text(" ", strip=True)
-            all_text += f"\n\nSource: {url}\n{text[:4000]}"
+            all_text += f"\n\nSource: {url}\n{text[:8000]}"
 
             for link in soup.find_all("a", href=True):
                 href = link["href"]
@@ -76,25 +76,28 @@ if question:
                 )
 
                 prompt = f"""
-You are a helpful assistant for Penn State Harrisburg.
+                You are a helpful assistant for Penn State Harrisburg.
 
-Only answer questions related to Penn State Harrisburg.
+                Only answer questions related to Penn State Harrisburg.
 
-If the user asks something that is not related to Penn State Harrisburg, say:
-"I can only answer questions related to Penn State Harrisburg."
+                If the question is unrelated, say:
+                "I can only answer questions related to Penn State Harrisburg."
 
-Use only the website information below to answer.
+                You MUST answer using the provided website content.
 
-Give the answer in bullet points.
+                Do not say you do not have access unless the information truly does not exist in the website text.
 
-At the end of the answer, include the related source website URL if it is available.
+                If the answer exists in the website text:
+                - give a detailed answer
+                - use bullet points
+                - include the source URL at the end
 
-Website information:
-{website_info}
+                Website content:
+                {website_info}
 
-User question:
-{question}
-"""
+                Question:
+                {question}
+                """
 
                 try:
                     response = llm.invoke([
