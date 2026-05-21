@@ -25,72 +25,48 @@ def scrape_psu_pages(question):
 
     question_lower = question.lower()
 
-    # Choose focused PSU pages based on the question
     if "housing" in question_lower or "dining" in question_lower:
 
         urls = [
             "https://harrisburg.psu.edu/housing-and-food-services",
-            "https://foodservices.psu.edu/",
-            "https://liveon.psu.edu/"
+            "https://foodservices.psu.edu/"
         ]
 
     elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
 
         urls = [
             "https://harrisburg.psu.edu/academic-programs",
-            "https://bulletins.psu.edu/programs/",
-            "https://harrisburg.psu.edu/academics"
+            "https://bulletins.psu.edu/programs/"
         ]
 
     elif "admission" in question_lower or "apply" in question_lower:
 
         urls = [
-            "https://harrisburg.psu.edu/admissions",
-            "https://admissions.psu.edu/"
+            "https://harrisburg.psu.edu/admissions"
         ]
 
-    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
+    elif "financial" in question_lower or "aid" in question_lower:
 
         urls = [
             "https://harrisburg.psu.edu/financial-aid",
             "https://studentaid.psu.edu/"
         ]
 
-    elif "canvas" in question_lower:
-
-        urls = [
-            "https://canvas.psu.edu/"
-        ]
-
-    elif "lionpath" in question_lower:
-
-        urls = [
-            "https://lionpath.psu.edu/"
-        ]
-
-    elif "career" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/career-services"
-        ]
-
-    elif "student" in question_lower or "campus" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/student-life",
-            "https://harrisburg.psu.edu/campus-life"
-        ]
-
     else:
 
         urls = [
-            "https://harrisburg.psu.edu/",
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/admissions",
-            "https://harrisburg.psu.edu/student-life"
+            "https://harrisburg.psu.edu/"
         ]
 
     all_text = ""
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        )
+    }
 
     for url in urls:
 
@@ -98,24 +74,28 @@ def scrape_psu_pages(question):
 
             response = requests.get(
                 url,
-                timeout=10,
-                headers={
-                    "User-Agent": "Mozilla/5.0"
-                }
+                headers=headers,
+                timeout=15
             )
+
+            response.raise_for_status()
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            text = soup.get_text(" ", strip=True)
+            # remove scripts/styles
+            for tag in soup(["script", "style", "noscript"]):
+                tag.extract()
 
-            cleaned_text = text[:12000]
+            text = soup.get_text(separator=" ", strip=True)
+
+            cleaned_text = text[:15000]
 
             all_text += f"""
 
 SOURCE WEBSITE:
 {url}
 
-WEBSITE CONTENT:
+SCRAPED WEBSITE TEXT:
 {cleaned_text}
 
 """
@@ -157,6 +137,10 @@ if question:
 
                 website_info = scrape_psu_pages(question)
 
+                # DEBUG VIEW
+                with st.expander("View scraped website text"):
+                    st.write(website_info[:8000])
+
                 llm = ChatOpenAI(
                     api_key=api_key,
                     base_url=base_url,
@@ -165,45 +149,41 @@ if question:
                 )
 
                 prompt = f"""
-You are a helpful Penn State Harrisburg assistant.
+You are a helpful PSU Harrisburg assistant.
 
 Questions about:
 - academics
 - housing
 - dining
 - admissions
-- financial aid
 - campus life
 - majors
-- programs
-- Canvas
+- financial aid
 - LionPATH
+- Canvas
 - PSU student services
 
-ARE related to Penn State Harrisburg.
+ARE related to PSU Harrisburg.
 
-Only reject questions that are clearly unrelated like:
-- sports scores
-- celebrities
-- politics
-- weather
-- random programming questions
+Only reject clearly unrelated questions.
 
 IMPORTANT:
-- Use ONLY the website information provided below.
-- Summarize the information clearly.
+- Use ONLY the scraped website text below.
+- Summarize the information.
 - Use bullet points.
-- Do NOT say:
+- NEVER say:
     - "I do not have access"
     - "I cannot provide"
-    - "I do not know"
-- If information is limited, still summarize what is available.
-- Always include the most relevant source website URL at the end.
+    - "information is unavailable"
 
-WEBSITE INFORMATION:
+If partial information exists, summarize it anyway.
+
+Always include the source website URL.
+
+SCRAPED WEBSITE TEXT:
 {website_info}
 
-USER QUESTION:
+QUESTION:
 {question}
 """
 
