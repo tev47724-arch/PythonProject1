@@ -25,37 +25,81 @@ def scrape_psu_pages(question):
 
     question_lower = question.lower()
 
-    if "housing" in question_lower or "dining" in question_lower:
+    # HOUSING / DINING
+    if "housing" in question_lower or "dining" in question_lower or "meal" in question_lower:
 
         urls = [
-            "https://harrisburg.psu.edu/housing-and-food-services",
-            "https://foodservices.psu.edu/"
+            "https://harrisburg.psu.edu/housing",
+            "https://liveon.psu.edu/harrisburg",
+            "https://liveon.psu.edu/harrisburg/housing-options",
+            "https://liveon.psu.edu/harrisburg/rates",
+            "https://liveon.psu.edu/meal-plans",
+            "https://foodservices.psu.edu/",
+            "https://harrisburg.psu.edu/residence-life"
         ]
 
+    # ACADEMICS / MAJORS
     elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
 
         urls = [
+            "https://harrisburg.psu.edu/academics",
             "https://harrisburg.psu.edu/academic-programs",
             "https://bulletins.psu.edu/programs/"
         ]
 
+    # ADMISSIONS
     elif "admission" in question_lower or "apply" in question_lower:
 
         urls = [
-            "https://harrisburg.psu.edu/admissions"
+            "https://harrisburg.psu.edu/admissions",
+            "https://admissions.psu.edu/"
         ]
 
-    elif "financial" in question_lower or "aid" in question_lower:
+    # FINANCIAL AID
+    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
 
         urls = [
             "https://harrisburg.psu.edu/financial-aid",
             "https://studentaid.psu.edu/"
         ]
 
+    # CAMPUS LIFE
+    elif "campus" in question_lower or "student" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/campus-life",
+            "https://harrisburg.psu.edu/student-life"
+        ]
+
+    # CANVAS
+    elif "canvas" in question_lower:
+
+        urls = [
+            "https://canvas.psu.edu/"
+        ]
+
+    # LIONPATH
+    elif "lionpath" in question_lower:
+
+        urls = [
+            "https://lionpath.psu.edu/"
+        ]
+
+    # CAREER SERVICES
+    elif "career" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/career-services"
+        ]
+
+    # DEFAULT
     else:
 
         urls = [
-            "https://harrisburg.psu.edu/"
+            "https://harrisburg.psu.edu/",
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/admissions",
+            "https://harrisburg.psu.edu/student-life"
         ]
 
     all_text = ""
@@ -82,7 +126,6 @@ def scrape_psu_pages(question):
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # remove scripts/styles
             for tag in soup(["script", "style", "noscript"]):
                 tag.extract()
 
@@ -137,9 +180,8 @@ if question:
 
                 website_info = scrape_psu_pages(question)
 
-                # DEBUG VIEW
                 with st.expander("View scraped website text"):
-                    st.write(website_info[:8000])
+                    st.write(website_info[:10000])
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -156,14 +198,15 @@ Questions about:
 - housing
 - dining
 - admissions
+- financial aid
 - campus life
 - majors
-- financial aid
-- LionPATH
+- programs
 - Canvas
+- LionPATH
 - PSU student services
 
-ARE related to PSU Harrisburg.
+ARE related to Penn State Harrisburg.
 
 Only reject clearly unrelated questions.
 
