@@ -62,15 +62,15 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Searching PSU Harrisburg website..."):
 
-            if not os.getenv("OPENROUTER_API_KEY"):
+            if "OPENROUTER_API_KEY" not in st.secrets:
                 st.error("Missing OPENROUTER_API_KEY in your .env file.")
 
             else:
                 website_info = scrape_psu_pages()
 
                 llm = ChatOpenAI(
-                    api_key=os.getenv("OPENROUTER_API_KEY"),
-                    base_url=os.getenv("OPENROUTER_BASE_URL"),
+                    api_key=st.secrets["OPENROUTER_API_KEY"],
+                    base_url=st.secrets["OPENROUTER_BASE_URL"],
                     model="google/gemini-2.0-flash-001",
                     temperature=0
                 )
