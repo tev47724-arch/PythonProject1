@@ -1,16 +1,14 @@
 import os
 import streamlit as st
-import requests
 
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 load_dotenv()
 
 st.set_page_config(page_title="PSU Harrisburg Assistant")
-
 st.title("PSU Harrisburg Website Assistant")
 
 
@@ -21,192 +19,89 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def scrape_psu_pages(question):
+firecrawl = FirecrawlApp(
+    api_key=get_secret("FIRECRAWL_API_KEY")
+)
 
-    question_lower = question.lower()
 
-    # HOUSING / DINING
-    if "housing" in question_lower or "dining" in question_lower or "meal" in question_lower:
+def get_start_url(question):
+    q = question.lower()
 
-        urls = [
-            "https://harrisburg.psu.edu/housing",
-            "https://liveon.psu.edu/harrisburg",
-            "https://liveon.psu.edu/harrisburg/housing-options",
-            "https://liveon.psu.edu/harrisburg/rates",
-            "https://liveon.psu.edu/meal-plans",
-            "https://foodservices.psu.edu/",
-            "https://harrisburg.psu.edu/residence-life"
-        ]
+    if "housing" in q or "dorm" in q or "room" in q:
+        return "https://liveon.psu.edu/harrisburg"
 
-    # ACADEMICS / MAJORS
-    elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
+    elif "meal" in q or "dining" in q or "food" in q:
+        return "https://liveon.psu.edu/meal-plans"
 
-        urls = [
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/academic-programs",
-            "https://bulletins.psu.edu/programs/"
-        ]
+    elif "major" in q or "program" in q or "academic" in q:
+        return "https://harrisburg.psu.edu/academics"
 
-    # ADMISSIONS
-    elif "admission" in question_lower or "apply" in question_lower:
+    elif "admission" in q or "apply" in q:
+        return "https://harrisburg.psu.edu/admissions"
 
-        urls = [
-            "https://harrisburg.psu.edu/admissions",
-            "https://admissions.psu.edu/"
-        ]
+    elif "financial" in q or "aid" in q or "scholarship" in q:
+        return "https://harrisburg.psu.edu/financial-aid"
 
-    # FINANCIAL AID
-    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
+    elif "tuition" in q or "cost" in q:
+        return "https://tuition.psu.edu/"
 
-        urls = [
-            "https://harrisburg.psu.edu/financial-aid",
-            "https://studentaid.psu.edu/"
-        ]
-
-    # CAMPUS LIFE
-    elif "campus" in question_lower or "student" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/campus-life",
-            "https://harrisburg.psu.edu/student-life"
-        ]
-
-    # CANVAS
-    elif "canvas" in question_lower:
-
-        urls = [
-            "https://canvas.psu.edu/"
-        ]
-
-    # LIONPATH
-    elif "lionpath" in question_lower:
-
-        urls = [
-            "https://lionpath.psu.edu/"
-        ]
-
-    # CAREER SERVICES
-    elif "career" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/career-services"
-        ]
-
-    # SPORTS
-    elif "sports" in question_lower or "athletics" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/athletics"
-        ]
-
-    # LIBRARY
-    elif "library" in question_lower:
-
-        urls = [
-            "https://libraries.psu.edu/"
-        ]
-
-    # TUITION
-    elif "tuition" in question_lower or "cost" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/tuition-and-financial-aid",
-            "https://tuition.psu.edu/"
-        ]
-
-    # DEFAULT
     else:
+        return "https://harrisburg.psu.edu/"
 
-        urls = [
-            "https://harrisburg.psu.edu/",
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/admissions",
-            "https://harrisburg.psu.edu/student-life",
-            "https://harrisburg.psu.edu/housing",
-            "https://liveon.psu.edu/harrisburg",
-            "https://foodservices.psu.edu/"
-        ]
 
-    all_text = ""
+def scrape_with_firecrawl(question):
+    start_url = get_start_url(question)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0 Safari/537.36"
+    try:
+        result = firecrawl.scrape_url(
+            start_url,
+            formats=["markdown"]
         )
-    }
 
-    for url in urls:
+        markdown = result.get("markdown", "")
 
-        try:
-
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=20
-            )
-
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            for tag in soup(["script", "style", "noscript"]):
-                tag.extract()
-
-            text = soup.get_text(separator=" ", strip=True)
-
-            cleaned_text = text[:15000]
-
-            all_text += f"""
-
+        return f"""
 SOURCE WEBSITE:
-{url}
+{start_url}
 
 SCRAPED WEBSITE TEXT:
-{cleaned_text}
-
+{markdown}
 """
 
-        except Exception as e:
-
-            all_text += f"""
-
+    except Exception as e:
+        return f"""
 SOURCE WEBSITE:
-{url}
+{start_url}
 
 ERROR:
 {e}
-
 """
-
-    return all_text
 
 
 question = st.chat_input("Ask something about PSU Harrisburg")
 
 if question:
-
     with st.chat_message("user"):
         st.write(question)
 
     with st.chat_message("assistant"):
-
-        with st.spinner("Searching PSU Harrisburg websites..."):
+        with st.spinner("Searching PSU website with Firecrawl..."):
 
             api_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
+            firecrawl_key = get_secret("FIRECRAWL_API_KEY")
 
             if not api_key:
-
                 st.error("Missing OPENROUTER_API_KEY.")
 
+            elif not firecrawl_key:
+                st.error("Missing FIRECRAWL_API_KEY.")
+
             else:
+                website_info = scrape_with_firecrawl(question)
 
-                website_info = scrape_psu_pages(question)
-
-                with st.expander("View scraped website text"):
-                    st.write(website_info[:10000])
+                with st.expander("View website text"):
+                    st.write(website_info[:12000])
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -218,39 +113,15 @@ if question:
                 prompt = f"""
 You are a helpful PSU Harrisburg assistant.
 
-Questions about:
-- academics
-- housing
-- dining
-- admissions
-- financial aid
-- campus life
-- majors
-- programs
-- Canvas
-- LionPATH
-- PSU student services
-- sports
-- tuition
-- library
+Use ONLY the website text below.
 
-ARE related to Penn State Harrisburg.
+Rules:
+- Answer in simple bullet points.
+- Include the source website URL.
+- If the website has partial information, still answer with what is available.
+- Do not make up facts.
 
-IMPORTANT:
-- Use ONLY the scraped website text below.
-- Summarize the information.
-- Use bullet points.
-- NEVER say:
-    - "I do not have access"
-    - "I cannot provide"
-    - "information is unavailable"
-    - "No PSU Harrisburg pages found"
-
-If partial information exists, summarize it anyway.
-
-Always include the source website URL.
-
-SCRAPED WEBSITE TEXT:
+WEBSITE TEXT:
 {website_info}
 
 QUESTION:
@@ -258,7 +129,6 @@ QUESTION:
 """
 
                 try:
-
                     response = llm.invoke([
                         HumanMessage(content=prompt)
                     ])
@@ -266,6 +136,5 @@ QUESTION:
                     st.write(response.content)
 
                 except Exception as e:
-
                     st.error("OpenRouter error.")
                     st.write(e)
