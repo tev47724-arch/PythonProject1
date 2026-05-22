@@ -58,8 +58,7 @@ def scrape_with_firecrawl(question):
             formats=["markdown"]
         )
 
-        markdown = result.get("markdown", "")
-
+        markdown = result.markdown
         return f"""
 SOURCE WEBSITE:
 {start_url}
