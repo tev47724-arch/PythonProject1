@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from duckduckgo_search import DDGS
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -21,74 +21,67 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def is_valid_psu_link(url):
-    parsed = urlparse(url)
+def search_psu_pages(question, max_results=5):
+    search_query = f"site:harrisburg.psu.edu {question}"
 
-    return (
-        parsed.scheme in ["http", "https"]
-        and "harrisburg.psu.edu" in parsed.netloc
-        and "#" not in url
-        and not url.endswith((".pdf", ".jpg", ".png", ".zip"))
-    )
+    urls = []
+
+    with DDGS() as ddgs:
+        results = ddgs.text(search_query, max_results=max_results)
+
+        for result in results:
+            url = result.get("href")
+
+            if url and "harrisburg.psu.edu" in url:
+                urls.append(url)
+
+    return urls
 
 
-def get_page_text(url):
+def scrape_page(url):
     headers = {
         "User-Agent": "Mozilla/5.0"
     }
 
-    response = requests.get(url, headers=headers, timeout=15)
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    for tag in soup(["script", "style", "noscript"]):
-        tag.extract()
+        for tag in soup(["script", "style", "noscript"]):
+            tag.extract()
 
-    return soup.get_text(" ", strip=True), soup
+        text = soup.get_text(" ", strip=True)
 
-
-def crawl_psu_website(start_url, max_pages=12):
-    visited = set()
-    pages_to_visit = [start_url]
-    all_text = ""
-
-    while pages_to_visit and len(visited) < max_pages:
-        url = pages_to_visit.pop(0)
-
-        if url in visited:
-            continue
-
-        try:
-            text, soup = get_page_text(url)
-            visited.add(url)
-
-            all_text += f"""
-
+        return f"""
 SOURCE WEBSITE:
 {url}
 
 SCRAPED WEBSITE TEXT:
-{text[:8000]}
-
+{text[:7000]}
 """
 
-            for link in soup.find_all("a", href=True):
-                full_url = urljoin(url, link["href"])
-
-                if is_valid_psu_link(full_url) and full_url not in visited:
-                    pages_to_visit.append(full_url)
-
-        except Exception as e:
-            all_text += f"""
-
+    except Exception as e:
+        return f"""
 SOURCE WEBSITE:
 {url}
 
 ERROR:
 {e}
-
 """
+
+
+def get_website_info(question):
+    urls = search_psu_pages(question)
+
+    if not urls:
+        return "No PSU Harrisburg pages found."
+
+    all_text = ""
+
+    for url in urls:
+        all_text += scrape_page(url)
 
     return all_text
 
@@ -108,13 +101,10 @@ if question:
             if not api_key:
                 st.error("Missing OPENROUTER_API_KEY.")
             else:
-                website_info = crawl_psu_website(
-                    "https://harrisburg.psu.edu/",
-                    max_pages=12
-                )
+                website_info = get_website_info(question)
 
-                with st.expander("View scraped website text"):
-                    st.write(website_info[:10000])
+                with st.expander("View searched website text"):
+                    st.write(website_info[:12000])
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -126,15 +116,16 @@ if question:
                 prompt = f"""
 You are a helpful PSU Harrisburg assistant.
 
-Use ONLY the scraped PSU Harrisburg website text below.
+Use ONLY the website text below.
 
 Rules:
-- Answer in simple bullet points.
+- Answer in simple student-friendly language.
+- Use bullet points.
 - Include the source website URL.
-- If only partial information is found, still answer using what is available.
-- Do not make up information.
+- If the website text has partial information, still answer using what is available.
+- Do not make up facts.
 
-SCRAPED WEBSITE TEXT:
+WEBSITE TEXT:
 {website_info}
 
 QUESTION:
