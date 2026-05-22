@@ -1,8 +1,9 @@
 import os
-import streamlit as st
 import requests
+import streamlit as st
 
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -10,7 +11,6 @@ from langchain_core.messages import HumanMessage
 load_dotenv()
 
 st.set_page_config(page_title="PSU Harrisburg Assistant")
-
 st.title("PSU Harrisburg Website Assistant")
 
 
@@ -21,117 +21,47 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def scrape_psu_pages(question):
+def is_valid_psu_link(url):
+    parsed = urlparse(url)
 
-    question_lower = question.lower()
+    return (
+        parsed.scheme in ["http", "https"]
+        and "harrisburg.psu.edu" in parsed.netloc
+        and "#" not in url
+        and not url.endswith((".pdf", ".jpg", ".png", ".zip"))
+    )
 
-    # HOUSING / DINING
-    if "housing" in question_lower or "dining" in question_lower or "meal" in question_lower:
 
-        urls = [
-            "https://harrisburg.psu.edu/housing",
-            "https://liveon.psu.edu/harrisburg",
-            "https://liveon.psu.edu/harrisburg/housing-options",
-            "https://liveon.psu.edu/harrisburg/rates",
-            "https://liveon.psu.edu/meal-plans",
-            "https://foodservices.psu.edu/",
-            "https://harrisburg.psu.edu/residence-life"
-        ]
-
-    # ACADEMICS / MAJORS
-    elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/academic-programs",
-            "https://bulletins.psu.edu/programs/"
-        ]
-
-    # ADMISSIONS
-    elif "admission" in question_lower or "apply" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/admissions",
-            "https://admissions.psu.edu/"
-        ]
-
-    # FINANCIAL AID
-    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/financial-aid",
-            "https://studentaid.psu.edu/"
-        ]
-
-    # CAMPUS LIFE
-    elif "campus" in question_lower or "student" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/campus-life",
-            "https://harrisburg.psu.edu/student-life"
-        ]
-
-    # CANVAS
-    elif "canvas" in question_lower:
-
-        urls = [
-            "https://canvas.psu.edu/"
-        ]
-
-    # LIONPATH
-    elif "lionpath" in question_lower:
-
-        urls = [
-            "https://lionpath.psu.edu/"
-        ]
-
-    # CAREER SERVICES
-    elif "career" in question_lower:
-
-        urls = [
-            "https://harrisburg.psu.edu/career-services"
-        ]
-
-    # DEFAULT
-    else:
-
-        urls = [
-            "https://harrisburg.psu.edu/",
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/admissions",
-            "https://harrisburg.psu.edu/student-life"
-        ]
-
-    all_text = ""
-
+def get_page_text(url):
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0 Safari/537.36"
-        )
+        "User-Agent": "Mozilla/5.0"
     }
 
-    for url in urls:
+    response = requests.get(url, headers=headers, timeout=15)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    for tag in soup(["script", "style", "noscript"]):
+        tag.extract()
+
+    return soup.get_text(" ", strip=True), soup
+
+
+def crawl_psu_website(start_url, max_pages=12):
+    visited = set()
+    pages_to_visit = [start_url]
+    all_text = ""
+
+    while pages_to_visit and len(visited) < max_pages:
+        url = pages_to_visit.pop(0)
+
+        if url in visited:
+            continue
 
         try:
-
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=15
-            )
-
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            for tag in soup(["script", "style", "noscript"]):
-                tag.extract()
-
-            text = soup.get_text(separator=" ", strip=True)
-
-            cleaned_text = text[:15000]
+            text, soup = get_page_text(url)
+            visited.add(url)
 
             all_text += f"""
 
@@ -139,12 +69,17 @@ SOURCE WEBSITE:
 {url}
 
 SCRAPED WEBSITE TEXT:
-{cleaned_text}
+{text[:8000]}
 
 """
 
-        except Exception as e:
+            for link in soup.find_all("a", href=True):
+                full_url = urljoin(url, link["href"])
 
+                if is_valid_psu_link(full_url) and full_url not in visited:
+                    pages_to_visit.append(full_url)
+
+        except Exception as e:
             all_text += f"""
 
 SOURCE WEBSITE:
@@ -161,24 +96,22 @@ ERROR:
 question = st.chat_input("Ask something about PSU Harrisburg")
 
 if question:
-
     with st.chat_message("user"):
         st.write(question)
 
     with st.chat_message("assistant"):
-
-        with st.spinner("Searching PSU Harrisburg websites..."):
+        with st.spinner("Searching PSU Harrisburg website..."):
 
             api_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
 
             if not api_key:
-
                 st.error("Missing OPENROUTER_API_KEY.")
-
             else:
-
-                website_info = scrape_psu_pages(question)
+                website_info = crawl_psu_website(
+                    "https://harrisburg.psu.edu/",
+                    max_pages=12
+                )
 
                 with st.expander("View scraped website text"):
                     st.write(website_info[:10000])
@@ -193,35 +126,13 @@ if question:
                 prompt = f"""
 You are a helpful PSU Harrisburg assistant.
 
-Questions about:
-- academics
-- housing
-- dining
-- admissions
-- financial aid
-- campus life
-- majors
-- programs
-- Canvas
-- LionPATH
-- PSU student services
+Use ONLY the scraped PSU Harrisburg website text below.
 
-ARE related to Penn State Harrisburg.
-
-Only reject clearly unrelated questions.
-
-IMPORTANT:
-- Use ONLY the scraped website text below.
-- Summarize the information.
-- Use bullet points.
-- NEVER say:
-    - "I do not have access"
-    - "I cannot provide"
-    - "information is unavailable"
-
-If partial information exists, summarize it anyway.
-
-Always include the source website URL.
+Rules:
+- Answer in simple bullet points.
+- Include the source website URL.
+- If only partial information is found, still answer using what is available.
+- Do not make up information.
 
 SCRAPED WEBSITE TEXT:
 {website_info}
@@ -231,7 +142,6 @@ QUESTION:
 """
 
                 try:
-
                     response = llm.invoke([
                         HumanMessage(content=prompt)
                     ])
@@ -239,6 +149,5 @@ QUESTION:
                     st.write(response.content)
 
                 except Exception as e:
-
                     st.error("OpenRouter error.")
                     st.write(e)
