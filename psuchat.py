@@ -1,9 +1,8 @@
 import os
-import requests
 import streamlit as st
+import requests
 
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -11,6 +10,7 @@ from langchain_core.messages import HumanMessage
 load_dotenv()
 
 st.set_page_config(page_title="PSU Harrisburg Assistant")
+
 st.title("PSU Harrisburg Website Assistant")
 
 
@@ -21,67 +21,164 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def search_psu_pages(question, max_results=5):
-    search_query = f"site:harrisburg.psu.edu {question}"
+def scrape_psu_pages(question):
 
-    urls = []
+    question_lower = question.lower()
 
-    with DDGS() as ddgs:
-        results = ddgs.text(search_query, max_results=max_results)
+    # HOUSING / DINING
+    if "housing" in question_lower or "dining" in question_lower or "meal" in question_lower:
 
-        for result in results:
-            url = result.get("href")
+        urls = [
+            "https://harrisburg.psu.edu/housing",
+            "https://liveon.psu.edu/harrisburg",
+            "https://liveon.psu.edu/harrisburg/housing-options",
+            "https://liveon.psu.edu/harrisburg/rates",
+            "https://liveon.psu.edu/meal-plans",
+            "https://foodservices.psu.edu/",
+            "https://harrisburg.psu.edu/residence-life"
+        ]
 
-            if url and "harrisburg.psu.edu" in url:
-                urls.append(url)
+    # ACADEMICS / MAJORS
+    elif "program" in question_lower or "major" in question_lower or "academic" in question_lower:
 
-    return urls
+        urls = [
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/academic-programs",
+            "https://bulletins.psu.edu/programs/"
+        ]
 
+    # ADMISSIONS
+    elif "admission" in question_lower or "apply" in question_lower:
 
-def scrape_page(url):
+        urls = [
+            "https://harrisburg.psu.edu/admissions",
+            "https://admissions.psu.edu/"
+        ]
+
+    # FINANCIAL AID
+    elif "financial" in question_lower or "aid" in question_lower or "scholarship" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/financial-aid",
+            "https://studentaid.psu.edu/"
+        ]
+
+    # CAMPUS LIFE
+    elif "campus" in question_lower or "student" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/campus-life",
+            "https://harrisburg.psu.edu/student-life"
+        ]
+
+    # CANVAS
+    elif "canvas" in question_lower:
+
+        urls = [
+            "https://canvas.psu.edu/"
+        ]
+
+    # LIONPATH
+    elif "lionpath" in question_lower:
+
+        urls = [
+            "https://lionpath.psu.edu/"
+        ]
+
+    # CAREER SERVICES
+    elif "career" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/career-services"
+        ]
+
+    # SPORTS
+    elif "sports" in question_lower or "athletics" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/athletics"
+        ]
+
+    # LIBRARY
+    elif "library" in question_lower:
+
+        urls = [
+            "https://libraries.psu.edu/"
+        ]
+
+    # TUITION
+    elif "tuition" in question_lower or "cost" in question_lower:
+
+        urls = [
+            "https://harrisburg.psu.edu/tuition-and-financial-aid",
+            "https://tuition.psu.edu/"
+        ]
+
+    # DEFAULT
+    else:
+
+        urls = [
+            "https://harrisburg.psu.edu/",
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/admissions",
+            "https://harrisburg.psu.edu/student-life",
+            "https://harrisburg.psu.edu/housing",
+            "https://liveon.psu.edu/harrisburg",
+            "https://foodservices.psu.edu/"
+        ]
+
+    all_text = ""
+
     headers = {
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        )
     }
 
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+    for url in urls:
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        try:
 
-        for tag in soup(["script", "style", "noscript"]):
-            tag.extract()
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=20
+            )
 
-        text = soup.get_text(" ", strip=True)
+            response.raise_for_status()
 
-        return f"""
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            for tag in soup(["script", "style", "noscript"]):
+                tag.extract()
+
+            text = soup.get_text(separator=" ", strip=True)
+
+            cleaned_text = text[:15000]
+
+            all_text += f"""
+
 SOURCE WEBSITE:
 {url}
 
 SCRAPED WEBSITE TEXT:
-{text[:7000]}
+{cleaned_text}
+
 """
 
-    except Exception as e:
-        return f"""
+        except Exception as e:
+
+            all_text += f"""
+
 SOURCE WEBSITE:
 {url}
 
 ERROR:
 {e}
+
 """
-
-
-def get_website_info(question):
-    urls = search_psu_pages(question)
-
-    if not urls:
-        return "No PSU Harrisburg pages found."
-
-    all_text = ""
-
-    for url in urls:
-        all_text += scrape_page(url)
 
     return all_text
 
@@ -89,22 +186,27 @@ def get_website_info(question):
 question = st.chat_input("Ask something about PSU Harrisburg")
 
 if question:
+
     with st.chat_message("user"):
         st.write(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching PSU Harrisburg website..."):
+
+        with st.spinner("Searching PSU Harrisburg websites..."):
 
             api_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
 
             if not api_key:
-                st.error("Missing OPENROUTER_API_KEY.")
-            else:
-                website_info = get_website_info(question)
 
-                with st.expander("View searched website text"):
-                    st.write(website_info[:12000])
+                st.error("Missing OPENROUTER_API_KEY.")
+
+            else:
+
+                website_info = scrape_psu_pages(question)
+
+                with st.expander("View scraped website text"):
+                    st.write(website_info[:10000])
 
                 llm = ChatOpenAI(
                     api_key=api_key,
@@ -116,16 +218,39 @@ if question:
                 prompt = f"""
 You are a helpful PSU Harrisburg assistant.
 
-Use ONLY the website text below.
+Questions about:
+- academics
+- housing
+- dining
+- admissions
+- financial aid
+- campus life
+- majors
+- programs
+- Canvas
+- LionPATH
+- PSU student services
+- sports
+- tuition
+- library
 
-Rules:
-- Answer in simple student-friendly language.
+ARE related to Penn State Harrisburg.
+
+IMPORTANT:
+- Use ONLY the scraped website text below.
+- Summarize the information.
 - Use bullet points.
-- Include the source website URL.
-- If the website text has partial information, still answer using what is available.
-- Do not make up facts.
+- NEVER say:
+    - "I do not have access"
+    - "I cannot provide"
+    - "information is unavailable"
+    - "No PSU Harrisburg pages found"
 
-WEBSITE TEXT:
+If partial information exists, summarize it anyway.
+
+Always include the source website URL.
+
+SCRAPED WEBSITE TEXT:
 {website_info}
 
 QUESTION:
@@ -133,6 +258,7 @@ QUESTION:
 """
 
                 try:
+
                     response = llm.invoke([
                         HumanMessage(content=prompt)
                     ])
@@ -140,5 +266,6 @@ QUESTION:
                     st.write(response.content)
 
                 except Exception as e:
+
                     st.error("OpenRouter error.")
                     st.write(e)
