@@ -1,15 +1,19 @@
 import os
+import requests
 import streamlit as st
 
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+
+import chromadb
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
 st.set_page_config(page_title="PSU Harrisburg Assistant")
-st.title("PSU Harrisburg Website Assistant")
+st.title("PSU Harrisburg RAG Assistant")
 
 
 def get_secret(name):
@@ -19,62 +23,123 @@ def get_secret(name):
         return os.getenv(name)
 
 
-firecrawl = FirecrawlApp(
-    api_key=get_secret("FIRECRAWL_API_KEY")
-)
+PSU_LINKS = [
+    "https://harrisburg.psu.edu/",
+    "https://harrisburg.psu.edu/academics",
+    "https://harrisburg.psu.edu/admissions",
+    "https://harrisburg.psu.edu/tuition-and-financial-aid",
+    "https://harrisburg.psu.edu/student-life",
+    "https://harrisburg.psu.edu/campus-life",
+    "https://liveon.psu.edu/harrisburg",
+    "https://liveon.psu.edu/meal-plans",
+    "https://tuition.psu.edu/",
+    "https://harrisburg.psu.edu/registrar"
+]
 
 
-def get_start_url(question):
-    q = question.lower()
-
-    if "housing" in q or "dorm" in q or "room" in q:
-        return "https://liveon.psu.edu/harrisburg"
-
-    elif "meal" in q or "dining" in q or "food" in q:
-        return "https://liveon.psu.edu/meal-plans"
-
-    elif "major" in q or "program" in q or "academic" in q:
-        return "https://harrisburg.psu.edu/academics"
-
-    elif "admission" in q or "apply" in q:
-        return "https://harrisburg.psu.edu/admissions"
-
-    elif "financial" in q or "aid" in q or "scholarship" in q:
-        return "https://harrisburg.psu.edu/financial-aid"
-
-    elif "tuition" in q or "cost" in q:
-        return "https://tuition.psu.edu/"
-
-    else:
-        return "https://harrisburg.psu.edu/"
+@st.cache_resource
+def load_embedding_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
 
-def scrape_with_firecrawl(question):
-    start_url = get_start_url(question)
+embedding_model = load_embedding_model()
 
+
+def scrape_page(url):
     try:
-        result = firecrawl.scrape_url(
-            start_url,
-            formats=["markdown"]
-        )
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
 
-        markdown = result.markdown
-        return f"""
-SOURCE WEBSITE:
-{start_url}
+        soup = BeautifulSoup(response.text, "html.parser")
 
-SCRAPED WEBSITE TEXT:
-{markdown}
-"""
+        for tag in soup(["script", "style", "nav", "footer"]):
+            tag.decompose()
+
+        return soup.get_text(" ", strip=True)
 
     except Exception as e:
-        return f"""
-SOURCE WEBSITE:
-{start_url}
+        return f"ERROR scraping {url}: {e}"
 
-ERROR:
-{e}
+
+def chunk_text(text, chunk_size=900, overlap=150):
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+
+    return chunks
+
+
+@st.cache_resource
+def build_vector_db():
+    client = chromadb.Client()
+
+    collection = client.get_or_create_collection(
+        name="psu_harrisburg_pages"
+    )
+
+    existing = collection.count()
+
+    if existing > 0:
+        return collection
+
+    doc_id = 0
+
+    for url in PSU_LINKS:
+        text = scrape_page(url)
+        chunks = chunk_text(text)
+
+        for chunk in chunks:
+            embedding = embedding_model.encode(chunk).tolist()
+
+            collection.add(
+                ids=[str(doc_id)],
+                embeddings=[embedding],
+                documents=[chunk],
+                metadatas=[{"source": url}]
+            )
+
+            doc_id += 1
+
+    return collection
+
+
+def vector_search(question, top_k=5):
+    collection = build_vector_db()
+
+    question_embedding = embedding_model.encode(question).tolist()
+
+    results = collection.query(
+        query_embeddings=[question_embedding],
+        n_results=top_k
+    )
+
+    matched_text = ""
+
+    for i in range(len(results["documents"][0])):
+        source = results["metadatas"][0][i]["source"]
+        document = results["documents"][0][i]
+        distance = results["distances"][0][i]
+
+        similarity = 1 - distance
+
+        matched_text += f"""
+SOURCE:
+{source}
+
+SIMILARITY SCORE:
+{similarity}
+
+TEXT:
+{document}
+
+---
 """
+
+    return matched_text, results
 
 
 question = st.chat_input("Ask something about PSU Harrisburg")
@@ -84,22 +149,27 @@ if question:
         st.write(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching PSU website with Firecrawl..."):
+        with st.spinner("Searching PSU pages using vector search..."):
 
             api_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
-            firecrawl_key = get_secret("FIRECRAWL_API_KEY")
 
             if not api_key:
                 st.error("Missing OPENROUTER_API_KEY.")
 
-            elif not firecrawl_key:
-                st.error("Missing FIRECRAWL_API_KEY.")
-
             else:
-                website_info = scrape_with_firecrawl(question)
+                website_info, results = vector_search(question)
 
-                with st.expander("View website text"):
+                st.subheader("Vector Search Scores")
+
+                for i in range(len(results["documents"][0])):
+                    source = results["metadatas"][0][i]["source"]
+                    distance = results["distances"][0][i]
+                    similarity = 1 - distance
+
+                    st.write(f"Similarity: {similarity:.4f} | Source: {source}")
+
+                with st.expander("View retrieved chunks"):
                     st.write(website_info[:12000])
 
                 llm = ChatOpenAI(
@@ -112,15 +182,15 @@ if question:
                 prompt = f"""
 You are a helpful PSU Harrisburg assistant.
 
-Use ONLY the website text below.
+Use ONLY the retrieved website text below.
 
 Rules:
 - Answer in simple bullet points.
 - Include the source website URL.
-- If the website has partial information, still answer with what is available.
+- If the retrieved text does not answer the question, say that clearly.
 - Do not make up facts.
 
-WEBSITE TEXT:
+RETRIEVED WEBSITE TEXT:
 {website_info}
 
 QUESTION:
