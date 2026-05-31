@@ -67,6 +67,7 @@ def scrape_psu_pages():
                 url,
                 formats=["markdown"]
             )
+            st.write(result)
 
             page_text = extract_firecrawl_text(result)
 
