@@ -20,26 +20,13 @@ def get_secret(name):
 
 
 def extract_firecrawl_text(result):
-    text = ""
 
     if isinstance(result, dict):
-        if "markdown" in result and result["markdown"]:
-            text += result["markdown"]
 
-        if "data" in result:
-            data = result["data"]
+        if "markdown" in result:
+            return result["markdown"]
 
-            if isinstance(data, dict):
-                text += data.get("markdown", "")
-
-            elif isinstance(data, list):
-                for page in data:
-                    if isinstance(page, dict):
-                        source = page.get("metadata", {}).get("sourceURL", "Unknown source")
-                        markdown = page.get("markdown", "")
-                        text += f"\n\nSOURCE: {source}\n{markdown}"
-
-    return text
+    return str(result)
 
 
 @st.cache_data(ttl=3600)
@@ -52,11 +39,8 @@ def scrape_psu_pages():
         "https://harrisburg.psu.edu/academics",
         "https://harrisburg.psu.edu/admissions",
         "https://harrisburg.psu.edu/student-life",
-        "https://harrisburg.psu.edu/campus-life",
-        "https://harrisburg.psu.edu/tuition-and-financial-aid",
         "https://harrisburg.psu.edu/registrar",
-        "https://liveon.psu.edu/harrisburg",
-        "https://liveon.psu.edu/meal-plans",
+        "https://liveon.psu.edu/harrisburg"
     ]
 
     all_text = ""
@@ -67,7 +51,6 @@ def scrape_psu_pages():
                 url,
                 formats=["markdown"]
             )
-            st.write(result)
 
             page_text = extract_firecrawl_text(result)
 
