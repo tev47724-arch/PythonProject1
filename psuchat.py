@@ -1,9 +1,8 @@
 import os
 import streamlit as st
-import requests
 
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
@@ -20,84 +19,55 @@ def get_secret(name):
         return os.getenv(name)
 
 
-def scrape_psu_pages(question):
-    q = question.lower()
+def extract_firecrawl_text(result):
+    text = ""
 
-    if "housing" in q or "dining" in q or "meal" in q:
-        urls = [
-            "https://liveon.psu.edu/harrisburg",
-            "https://liveon.psu.edu/meal-plans",
-            "https://foodservices.psu.edu/"
-        ]
+    if isinstance(result, dict):
+        if "markdown" in result:
+            text += result["markdown"]
+        elif "content" in result:
+            text += result["content"]
+        elif "data" in result:
+            data = result["data"]
 
-    elif "major" in q or "program" in q or "academic" in q:
-        urls = [
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/academic-programs",
-            "https://bulletins.psu.edu/programs/"
-        ]
+            if isinstance(data, list):
+                for page in data:
+                    url = page.get("metadata", {}).get("sourceURL", "Unknown source")
+                    markdown = page.get("markdown", "")
+                    text += f"\n\nSOURCE: {url}\n{markdown}"
 
-    elif "admission" in q or "apply" in q:
-        urls = [
-            "https://harrisburg.psu.edu/admissions",
-            "https://admissions.psu.edu/"
-        ]
+            elif isinstance(data, dict):
+                text += data.get("markdown", "")
 
-    elif "financial" in q or "aid" in q or "tuition" in q or "scholarship" in q:
-        urls = [
-            "https://harrisburg.psu.edu/tuition-and-financial-aid",
-            "https://studentaid.psu.edu/",
-            "https://tuition.psu.edu/"
-        ]
+    elif isinstance(result, list):
+        for page in result:
+            if isinstance(page, dict):
+                url = page.get("metadata", {}).get("sourceURL", "Unknown source")
+                markdown = page.get("markdown", "")
+                text += f"\n\nSOURCE: {url}\n{markdown}"
 
-    elif "canvas" in q:
-        urls = ["https://canvas.psu.edu/"]
+    return text
 
-    elif "lionpath" in q:
-        urls = ["https://lionpath.psu.edu/"]
 
-    elif "career" in q:
-        urls = ["https://harrisburg.psu.edu/career-services"]
+@st.cache_data(ttl=3600)
+def crawl_psu_site():
+    firecrawl_key = get_secret("FIRECRAWL_API_KEY")
 
-    elif "registrar" in q or "calendar" in q:
-        urls = [
-            "https://harrisburg.psu.edu/registrar",
-            "https://www.registrar.psu.edu/academic-calendars/"
-        ]
+    app = FirecrawlApp(api_key=firecrawl_key)
 
-    else:
-        urls = [
-            "https://harrisburg.psu.edu/",
-            "https://harrisburg.psu.edu/academics",
-            "https://harrisburg.psu.edu/admissions",
-            "https://harrisburg.psu.edu/student-life",
-            "https://harrisburg.psu.edu/campus-life"
-        ]
+    result = app.crawl_url(
+        "https://harrisburg.psu.edu/",
+        params={
+            "limit": 20,
+            "scrapeOptions": {
+                "formats": ["markdown"]
+            }
+        }
+    )
 
-    all_text = ""
+    website_text = extract_firecrawl_text(result)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    for url in urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            for tag in soup(["script", "style", "noscript", "nav", "footer"]):
-                tag.decompose()
-
-            text = soup.get_text(" ", strip=True)
-
-            all_text += f"\n\nSOURCE WEBSITE: {url}\n{text[:12000]}"
-
-        except Exception as e:
-            all_text += f"\n\nSOURCE WEBSITE: {url}\nERROR: {e}"
-
-    return all_text
+    return website_text[:60000]
 
 
 question = st.chat_input("Ask something about PSU Harrisburg")
@@ -107,54 +77,68 @@ if question:
         st.write(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching PSU Harrisburg websites..."):
+        with st.spinner("Searching PSU Harrisburg website..."):
 
-            api_key = get_secret("OPENROUTER_API_KEY")
+            openrouter_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
+            firecrawl_key = get_secret("FIRECRAWL_API_KEY")
 
-            if not api_key:
+            if not openrouter_key:
                 st.error("Missing OPENROUTER_API_KEY.")
-            else:
-                website_info = scrape_psu_pages(question)
 
-                with st.expander("View scraped website text"):
+            elif not firecrawl_key:
+                st.error("Missing FIRECRAWL_API_KEY.")
+
+            else:
+                website_info = crawl_psu_site()
+
+                with st.expander("View website text"):
                     st.write(website_info[:10000])
 
                 llm = ChatOpenAI(
-                    api_key=api_key,
+                    api_key=openrouter_key,
                     base_url=base_url,
                     model="google/gemini-2.0-flash-001",
                     temperature=0
                 )
 
                 prompt = f"""
-You are a helpful Penn State Harrisburg assistant.
+You are a helpful assistant for Penn State Harrisburg.
 
-Questions about PSU Harrisburg academics, housing, dining, admissions, financial aid,
-campus life, majors, programs, Canvas, LionPATH, registrar, and student services
-are related to Penn State Harrisburg.
+Only answer questions related to:
+- Penn State Harrisburg
+- academics
+- admissions
+- financial aid
+- housing
+- dining
+- student life
+- campus resources
+- majors and programs
 
-Only reject clearly unrelated questions.
+If the question is clearly unrelated, say:
+"I can only answer questions related to Penn State Harrisburg."
 
-Use ONLY the website text below.
+Use only the website information below.
 
-Rules:
-- Answer in simple bullet points.
-- Include the source website URL.
-- Do not make up facts.
-- If the website text has partial information, summarize what is available.
+Answer in simple bullet points.
 
-WEBSITE TEXT:
+Include the source URL if available.
+
+Website information:
 {website_info}
 
-QUESTION:
+User question:
 {question}
 """
 
                 try:
-                    response = llm.invoke([HumanMessage(content=prompt)])
+                    response = llm.invoke([
+                        HumanMessage(content=prompt)
+                    ])
+
                     st.write(response.content)
 
                 except Exception as e:
-                    st.error("OpenRouter error.")
+                    st.error("OpenRouter error. Check your API key, credits, or model name.")
                     st.write(e)
