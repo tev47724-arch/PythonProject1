@@ -1,6 +1,8 @@
 import os
+import re
 import streamlit as st
 
+from difflib import SequenceMatcher
 from dotenv import load_dotenv
 from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
@@ -20,13 +22,39 @@ def get_secret(name):
 
 
 def extract_firecrawl_text(result):
-
     if isinstance(result, dict):
-
         if "markdown" in result:
             return result["markdown"]
 
     return str(result)
+
+
+def clean_words(text):
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+
+    stop_words = {
+        "the", "is", "are", "a", "an", "to", "of", "and", "in", "for",
+        "what", "how", "does", "do", "me", "about", "at", "on"
+    }
+
+    words = text.split()
+    return [word for word in words if word not in stop_words]
+
+
+def keyword_overlap_score(question, text):
+    question_words = set(clean_words(question))
+    text_words = set(clean_words(text))
+
+    if not question_words:
+        return 0
+
+    overlap = question_words.intersection(text_words)
+    return round((len(overlap) / len(question_words)) * 100, 2)
+
+
+def similarity_score(text1, text2):
+    return round(SequenceMatcher(None, text1.lower(), text2.lower()).ratio() * 100, 2)
 
 
 @st.cache_data(ttl=3600)
@@ -120,7 +148,18 @@ User question:
                         HumanMessage(content=prompt)
                     ])
 
-                    st.write(response.content)
+                    answer = response.content
+                    st.write(answer)
+
+                    retrieval_score = keyword_overlap_score(question, website_info)
+                    answer_relevance_score = keyword_overlap_score(question, answer)
+                    similarity = similarity_score(question, answer)
+
+                    st.subheader("Evaluation Scores")
+
+                    st.write(f"Retrieval relevance: {retrieval_score}%")
+                    st.write(f"Answer relevance: {answer_relevance_score}%")
+                    st.write(f"Similarity score: {similarity}%")
 
                 except Exception as e:
                     st.error("OpenRouter error.")
