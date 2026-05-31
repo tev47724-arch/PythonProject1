@@ -1,8 +1,5 @@
 streamlit
 python-dotenv
-requests
-beautifulsoup4
-sentence-transformers
-chromadb
 langchain-openai
 langchain-core
+firecrawl-py

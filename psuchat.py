@@ -1,20 +1,15 @@
 import os
-import requests
 import streamlit as st
 
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
-import chromadb
-
+from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-
 load_dotenv()
 
-st.set_page_config(page_title="PSU Harrisburg Vector RAG Assistant")
-st.title("PSU Harrisburg Vector RAG Assistant")
+st.set_page_config(page_title="PSU Harrisburg Assistant")
+st.title("PSU Harrisburg Website Assistant")
 
 
 def get_secret(name):
@@ -24,126 +19,63 @@ def get_secret(name):
         return os.getenv(name)
 
 
-PSU_LINKS = [
-    "https://harrisburg.psu.edu/",
-    "https://harrisburg.psu.edu/academics",
-    "https://harrisburg.psu.edu/admissions",
-    "https://harrisburg.psu.edu/tuition-and-financial-aid",
-    "https://harrisburg.psu.edu/student-life",
-    "https://harrisburg.psu.edu/campus-life",
-    "https://liveon.psu.edu/harrisburg",
-    "https://liveon.psu.edu/meal-plans",
-    "https://tuition.psu.edu/",
-    "https://harrisburg.psu.edu/registrar"
-]
+def extract_firecrawl_text(result):
+    text = ""
+
+    if isinstance(result, dict):
+        if "markdown" in result and result["markdown"]:
+            text += result["markdown"]
+
+        if "data" in result:
+            data = result["data"]
+
+            if isinstance(data, dict):
+                text += data.get("markdown", "")
+
+            elif isinstance(data, list):
+                for page in data:
+                    if isinstance(page, dict):
+                        source = page.get("metadata", {}).get("sourceURL", "Unknown source")
+                        markdown = page.get("markdown", "")
+                        text += f"\n\nSOURCE: {source}\n{markdown}"
+
+    return text
 
 
-@st.cache_resource
-def load_embedding_model():
-    return SentenceTransformer("all-MiniLM-L6-v2")
+@st.cache_data(ttl=3600)
+def scrape_psu_pages():
+    firecrawl_key = get_secret("FIRECRAWL_API_KEY")
+    app = FirecrawlApp(api_key=firecrawl_key)
 
+    urls = [
+        "https://harrisburg.psu.edu/",
+        "https://harrisburg.psu.edu/academics",
+        "https://harrisburg.psu.edu/admissions",
+        "https://harrisburg.psu.edu/student-life",
+        "https://harrisburg.psu.edu/campus-life",
+        "https://harrisburg.psu.edu/tuition-and-financial-aid",
+        "https://harrisburg.psu.edu/registrar",
+        "https://liveon.psu.edu/harrisburg",
+        "https://liveon.psu.edu/meal-plans",
+    ]
 
-embedding_model = load_embedding_model()
+    all_text = ""
 
-
-def scrape_page(url):
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        for tag in soup(["script", "style", "nav", "footer"]):
-            tag.decompose()
-
-        text = soup.get_text(" ", strip=True)
-        return text
-
-    except Exception as e:
-        return f"Error scraping {url}: {e}"
-
-
-def chunk_text(text, chunk_size=800, overlap=150):
-    chunks = []
-    start = 0
-
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
-
-        if len(chunk.strip()) > 100:
-            chunks.append(chunk)
-
-        start += chunk_size - overlap
-
-    return chunks
-
-
-@st.cache_resource
-def build_vector_database():
-    client = chromadb.PersistentClient(path="./chroma_db")
-
-    collection = client.get_or_create_collection(
-        name="psu_harrisburg_rag"
-    )
-
-    if collection.count() > 0:
-        return collection
-
-    doc_id = 0
-
-    for url in PSU_LINKS:
-        text = scrape_page(url)
-        chunks = chunk_text(text)
-
-        for chunk in chunks:
-            embedding = embedding_model.encode(chunk).tolist()
-
-            collection.add(
-                ids=[str(doc_id)],
-                embeddings=[embedding],
-                documents=[chunk],
-                metadatas=[{"source": url}]
+    for url in urls:
+        try:
+            result = app.scrape_url(
+                url,
+                formats=["markdown"]
             )
 
-            doc_id += 1
+            page_text = extract_firecrawl_text(result)
 
-    return collection
+            all_text += f"\n\nSOURCE: {url}\n{page_text}"
 
+        except Exception as e:
+            all_text += f"\n\nSOURCE: {url}\nERROR: {e}"
 
-def search_vector_database(question, top_k=5):
-    collection = build_vector_database()
-
-    question_embedding = embedding_model.encode(question).tolist()
-
-    results = collection.query(
-        query_embeddings=[question_embedding],
-        n_results=top_k
-    )
-
-    context = ""
-
-    for i in range(len(results["documents"][0])):
-        source = results["metadatas"][0][i]["source"]
-        text = results["documents"][0][i]
-        distance = results["distances"][0][i]
-
-        similarity = 1 - distance
-
-        context += f"""
-SOURCE URL:
-{source}
-
-SIMILARITY SCORE:
-{similarity:.4f}
-
-TEXT:
-{text}
-
----
-"""
-
-    return context, results
+    return all_text[:60000]
 
 
 question = st.chat_input("Ask something about PSU Harrisburg")
@@ -153,64 +85,59 @@ if question:
         st.write(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching PSU pages with vector search..."):
+        with st.spinner("Searching PSU Harrisburg websites..."):
 
-            api_key = get_secret("OPENROUTER_API_KEY")
+            openrouter_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
+            firecrawl_key = get_secret("FIRECRAWL_API_KEY")
 
-            if not api_key:
+            if not openrouter_key:
                 st.error("Missing OPENROUTER_API_KEY.")
-                st.stop()
 
-            if not base_url:
-                base_url = "https://openrouter.ai/api/v1"
+            elif not firecrawl_key:
+                st.error("Missing FIRECRAWL_API_KEY.")
 
-            context, results = search_vector_database(question)
+            else:
+                website_info = scrape_psu_pages()
 
-            st.subheader("Vector Similarity Scores")
+                with st.expander("View website text"):
+                    st.write(website_info[:10000])
 
-            for i in range(len(results["documents"][0])):
-                source = results["metadatas"][0][i]["source"]
-                distance = results["distances"][0][i]
-                similarity = 1 - distance
+                llm = ChatOpenAI(
+                    api_key=openrouter_key,
+                    base_url=base_url,
+                    model="google/gemini-2.0-flash-001",
+                    temperature=0
+                )
 
-                st.write(f"Similarity: {similarity:.4f} | Source: {source}")
+                prompt = f"""
+You are a helpful assistant for Penn State Harrisburg.
 
-            with st.expander("View retrieved chunks"):
-                st.write(context)
+Only answer questions related to Penn State Harrisburg.
 
-            llm = ChatOpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                model="google/gemini-2.0-flash-001",
-                temperature=0
-            )
+Use only the website information below.
 
-            prompt = f"""
-You are a helpful PSU Harrisburg assistant.
+Answer in simple bullet points.
 
-Use ONLY the retrieved website text below.
+Include the source URL when possible.
 
-Rules:
-- Answer in simple bullet points.
-- Include the source URL.
-- If the retrieved text does not answer the question, say that clearly.
-- Do not make up information.
+If the question is clearly unrelated, say:
+"I can only answer questions related to Penn State Harrisburg."
 
-RETRIEVED WEBSITE TEXT:
-{context}
+Website information:
+{website_info}
 
-USER QUESTION:
+User question:
 {question}
 """
 
-            try:
-                response = llm.invoke([
-                    HumanMessage(content=prompt)
-                ])
+                try:
+                    response = llm.invoke([
+                        HumanMessage(content=prompt)
+                    ])
 
-                st.write(response.content)
+                    st.write(response.content)
 
-            except Exception as e:
-                st.error("OpenRouter error.")
-                st.write(e)
+                except Exception as e:
+                    st.error("OpenRouter error.")
+                    st.write(e)
