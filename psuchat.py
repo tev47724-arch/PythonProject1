@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-import chromadb
 from sentence_transformers import SentenceTransformer
 
 load_dotenv()
