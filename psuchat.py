@@ -189,7 +189,7 @@ if question:
                 llm = ChatOpenAI(
                     api_key=openrouter_key,
                     base_url=base_url,
-                    model="google/gemini-2.0-flash-001",
+                    model="google/gemini-2.5-flash",
                     temperature=0
                 )
 
