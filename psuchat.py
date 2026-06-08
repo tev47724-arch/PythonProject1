@@ -1,8 +1,6 @@
 import os
-import re
 import streamlit as st
 
-from difflib import SequenceMatcher
 from dotenv import load_dotenv
 from firecrawl import FirecrawlApp
 from langchain_openai import ChatOpenAI
@@ -11,7 +9,7 @@ from langchain_core.messages import HumanMessage
 load_dotenv()
 
 st.set_page_config(page_title="PSU Harrisburg Assistant")
-st.title("PSU Harrisburg Website Assistant")
+st.title("PSU Harrisburg RAD Assistant")
 
 
 def get_secret(name):
@@ -29,47 +27,112 @@ def extract_firecrawl_text(result):
     return str(result)
 
 
-def clean_words(text):
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9\s]", "", text)
+def decide_topic(question):
+    question = question.lower()
 
-    stop_words = {
-        "the", "is", "are", "a", "an", "to", "of", "and", "in", "for",
-        "what", "how", "does", "do", "me", "about", "at", "on"
-    }
+    if "housing" in question or "dorm" in question or "live" in question:
+        return "Housing"
 
-    words = text.split()
-    return [word for word in words if word not in stop_words]
+    elif "dining" in question or "food" in question or "meal" in question:
+        return "Dining"
+
+    elif "major" in question or "program" in question or "academic" in question or "degree" in question:
+        return "Academics"
+
+    elif "admission" in question or "apply" in question or "application" in question:
+        return "Admissions"
+
+    elif "registrar" in question or "calendar" in question or "class" in question or "schedule" in question:
+        return "Registrar"
+
+    elif "student life" in question or "club" in question or "organization" in question or "activity" in question:
+        return "Student Life"
+
+    elif "financial" in question or "aid" in question or "tuition" in question or "scholarship" in question:
+        return "Financial Aid"
+
+    elif "canvas" in question:
+        return "Canvas"
+
+    elif "lionpath" in question:
+        return "LionPATH"
+
+    else:
+        return "General"
 
 
-def keyword_overlap_score(question, text):
-    question_words = set(clean_words(question))
-    text_words = set(clean_words(text))
+def get_urls_for_topic(topic):
+    if topic == "Housing":
+        return [
+            "https://liveon.psu.edu/harrisburg",
+            "https://harrisburg.psu.edu/student-life"
+        ]
 
-    if not question_words:
-        return 0
+    elif topic == "Dining":
+        return [
+            "https://liveon.psu.edu/harrisburg",
+            "https://liveon.psu.edu/meal-plans"
+        ]
 
-    overlap = question_words.intersection(text_words)
-    return round((len(overlap) / len(question_words)) * 100, 2)
+    elif topic == "Academics":
+        return [
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/academics/undergraduate-programs",
+            "https://harrisburg.psu.edu/academics/graduate-programs"
+        ]
 
+    elif topic == "Admissions":
+        return [
+            "https://harrisburg.psu.edu/admissions",
+            "https://harrisburg.psu.edu/admissions/first-year-students-faq",
+            "https://harrisburg.psu.edu/admissions/transfer-students"
+        ]
 
-def similarity_score(text1, text2):
-    return round(SequenceMatcher(None, text1.lower(), text2.lower()).ratio() * 100, 2)
+    elif topic == "Registrar":
+        return [
+            "https://harrisburg.psu.edu/registrar",
+            "https://harrisburg.psu.edu/academic-calendar"
+        ]
+
+    elif topic == "Student Life":
+        return [
+            "https://harrisburg.psu.edu/student-life",
+            "https://harrisburg.psu.edu/student-engagement",
+            "https://harrisburg.psu.edu/recreation-and-fitness"
+        ]
+
+    elif topic == "Financial Aid":
+        return [
+            "https://harrisburg.psu.edu/financial-aid",
+            "https://tuition.psu.edu/",
+            "https://studentaid.psu.edu/"
+        ]
+
+    elif topic == "Canvas":
+        return [
+            "https://canvas.psu.edu/"
+        ]
+
+    elif topic == "LionPATH":
+        return [
+            "https://lionpath.psu.edu/"
+        ]
+
+    else:
+        return [
+            "https://harrisburg.psu.edu/",
+            "https://harrisburg.psu.edu/academics",
+            "https://harrisburg.psu.edu/admissions",
+            "https://harrisburg.psu.edu/student-life",
+            "https://harrisburg.psu.edu/registrar",
+            "https://liveon.psu.edu/harrisburg"
+        ]
 
 
 @st.cache_data(ttl=3600)
-def scrape_psu_pages():
+def scrape_urls(urls):
     firecrawl_key = get_secret("FIRECRAWL_API_KEY")
     app = FirecrawlApp(api_key=firecrawl_key)
-
-    urls = [
-        "https://harrisburg.psu.edu/",
-        "https://harrisburg.psu.edu/academics",
-        "https://harrisburg.psu.edu/admissions",
-        "https://harrisburg.psu.edu/student-life",
-        "https://harrisburg.psu.edu/registrar",
-        "https://liveon.psu.edu/harrisburg"
-    ]
 
     all_text = ""
 
@@ -97,7 +160,7 @@ if question:
         st.write(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching PSU Harrisburg websites..."):
+        with st.spinner("Using RAD to choose the right PSU information..."):
 
             openrouter_key = get_secret("OPENROUTER_API_KEY")
             base_url = get_secret("OPENROUTER_BASE_URL")
@@ -110,7 +173,15 @@ if question:
                 st.error("Missing FIRECRAWL_API_KEY.")
 
             else:
-                website_info = scrape_psu_pages()
+                topic = decide_topic(question)
+                urls = get_urls_for_topic(topic)
+                website_info = scrape_urls(urls)
+
+                st.subheader("RAD Decision")
+                st.write(f"Detected topic: {topic}")
+                st.write("Selected sources:")
+                for url in urls:
+                    st.write(f"- {url}")
 
                 with st.expander("View website text"):
                     st.write(website_info[:10000])
@@ -124,6 +195,11 @@ if question:
 
                 prompt = f"""
 You are a helpful assistant for Penn State Harrisburg.
+
+The system used RAD, Retrieval-Augmented Decisioning, to classify the user's question.
+
+Detected topic:
+{topic}
 
 Only answer questions related to Penn State Harrisburg.
 
@@ -148,18 +224,7 @@ User question:
                         HumanMessage(content=prompt)
                     ])
 
-                    answer = response.content
-                    st.write(answer)
-
-                    retrieval_score = keyword_overlap_score(question, website_info)
-                    answer_relevance_score = keyword_overlap_score(question, answer)
-                    similarity = similarity_score(question, answer)
-
-                    st.subheader("Evaluation Scores")
-
-                    st.write(f"Retrieval relevance: {retrieval_score}%")
-                    st.write(f"Answer relevance: {answer_relevance_score}%")
-                    st.write(f"Similarity score: {similarity}%")
+                    st.write(response.content)
 
                 except Exception as e:
                     st.error("OpenRouter error.")
